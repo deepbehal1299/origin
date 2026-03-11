@@ -7,7 +7,7 @@ import { getCompareIds, removeCompareId } from "@/lib/storage";
 import { Coffee } from "@/lib/types";
 
 export default function ComparePage() {
-  const [mode, setMode] = useState<"live" | "mock">("live");
+  const [mode, setMode] = useState<"live" | "mock" | null>(null);
   const [coffees, setCoffees] = useState<Coffee[]>([]);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -20,13 +20,18 @@ export default function ComparePage() {
   }, []);
 
   useEffect(() => {
+    if (mode === null) {
+      return;
+    }
+    const resolvedMode = mode;
+
     const controller = new AbortController();
 
     async function loadCoffees() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetchCoffees({ signal: controller.signal, mode });
+        const response = await fetchCoffees({ signal: controller.signal, mode: resolvedMode });
         setCoffees(response);
       } catch (loadError) {
         setError(loadError instanceof Error ? loadError.message : "Failed to fetch coffees.");

@@ -7,18 +7,13 @@ import { fetchCoffees } from "@/lib/api";
 import { getCompareIds, setCompareIds } from "@/lib/storage";
 import { TEST_COFFEES } from "@/tests/fixtures/coffees";
 
-const mockUseSearchParams = vi.fn(() => new URLSearchParams("mock=1"));
-
-vi.mock("next/navigation", () => ({
-  useSearchParams: () => mockUseSearchParams(),
-}));
-
 vi.mock("@/lib/api", () => ({
   fetchCoffees: vi.fn(),
 }));
 
 describe("Compare page integration", () => {
   beforeEach(() => {
+    window.history.replaceState({}, "", "/compare?mock=1");
     setCompareIds(["c1", "c2"]);
     vi.mocked(fetchCoffees).mockResolvedValue(TEST_COFFEES);
   });
