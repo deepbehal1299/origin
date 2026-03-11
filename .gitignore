@@ -21,3 +21,4 @@ out/
 # SQLite (local dev)
 *.sqlite
 *.sqlite3
+backend/data/
