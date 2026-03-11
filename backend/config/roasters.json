@@ -1,0 +1,38 @@
+[
+  {
+    "id": "subko",
+    "name": "Subko",
+    "url": "https://subko.coffee",
+    "type": "shopify"
+  },
+  {
+    "id": "savorworks",
+    "name": "Savorworks",
+    "url": "https://savorworksroasters.com",
+    "type": "html"
+  },
+  {
+    "id": "bloom-coffee-roasters",
+    "name": "Bloom Coffee Roasters",
+    "url": "https://bloomcoffeeroasters.in",
+    "type": "shopify"
+  },
+  {
+    "id": "rossette-coffee-lab",
+    "name": "Rossette Coffee Lab",
+    "url": "https://rossettecoffee.com",
+    "type": "shopify"
+  },
+  {
+    "id": "marcs-coffee",
+    "name": "Marcs Coffee",
+    "url": "https://marcscoffees.com",
+    "type": "html"
+  },
+  {
+    "id": "grey-soul-coffee",
+    "name": "Grey Soul Coffee",
+    "url": "https://greysoul.coffee",
+    "type": "shopify"
+  }
+]
