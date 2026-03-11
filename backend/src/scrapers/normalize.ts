@@ -2,11 +2,18 @@ import type { RoastLevel } from "../types.js";
 import { ROAST_LEVELS } from "../types.js";
 
 const ROAST_PATTERNS: Array<{ pattern: RegExp; level: RoastLevel }> = [
-  { pattern: /\blight[\s-]*medium\b/i, level: "Light-Medium" },
-  { pattern: /\bmedium[\s-]*dark\b/i, level: "Medium-Dark" },
+  // Multi-word patterns first (order matters)
+  { pattern: /\blight[\s-]*med(?:ium)?\b/i, level: "Light-Medium" },
+  { pattern: /\bmed(?:ium)?[\s-]*light\b/i, level: "Light-Medium" },
+  { pattern: /\bmed(?:ium)?[\s-]*dark\b/i, level: "Medium-Dark" },
+  { pattern: /\bdark[\s-]*med(?:ium)?\b/i, level: "Medium-Dark" },
+  { pattern: /\bultra[\s-]*light\b/i, level: "Light" },
+  // Single-word patterns
   { pattern: /\blight\b/i, level: "Light" },
   { pattern: /\bmedium\b/i, level: "Medium" },
   { pattern: /\bdark\b/i, level: "Dark" },
+  // Abbreviated (e.g. Grey Soul "Med Roast")
+  { pattern: /\bmed\b/i, level: "Medium" },
 ];
 
 /**

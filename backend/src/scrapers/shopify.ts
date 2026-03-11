@@ -78,16 +78,68 @@ function pickCheapestVariant(variants: ShopifyVariant[]): ShopifyVariant | undef
   });
 }
 
-function extractRoastLevel(product: ShopifyProduct): string | null {
-  const sources = [
-    ...(product.tags ?? []),
-    product.product_type ?? "",
-    product.title ?? "",
-  ];
-  for (const src of sources) {
-    const level = normalizeRoastLevel(src);
+const NON_COFFEE_TAGS = [
+  "events", "experiences", "cacao", "chocolate", "equipment",
+  "merch", "social", "gift_wrap", "taufah", "valentine",
+  "sienna", "tote", "photobook",
+];
+
+const NON_COFFEE_TYPES = [
+  "giftit", "gift cards",
+];
+
+const COFFEE_INDICATORS = [
+  "arabica", "robusta", "coffee", "espresso", "filter",
+  "roast", "blend", "single origin", "pourover", "pour over",
+];
+
+const NON_COFFEE_TITLE_KEYWORDS = [
+  "filter paper", "hario", "aeropress", "kalita", "kettle",
+  "grinder", "doser", "tote", "gift box", "souvenir",
+  "t-shirt", "photobook", "jar", "glass", "dripper",
+  "scale", "server",
+];
+
+function isCoffeeProduct(product: ShopifyProduct): boolean {
+  const tagsLower = (product.tags ?? []).map((t) => t.toLowerCase());
+  const typeLower = (product.product_type ?? "").toLowerCase();
+  const titleLower = (product.title ?? "").toLowerCase();
+
+  if (NON_COFFEE_TYPES.some((t) => typeLower === t)) return false;
+
+  if (NON_COFFEE_TITLE_KEYWORDS.some((kw) => titleLower.includes(kw))) return false;
+
+  if (NON_COFFEE_TAGS.some((t) => tagsLower.some((tag) => tag.includes(t)))) {
+    const hasCoffeeTag = tagsLower.some((tag) =>
+      COFFEE_INDICATORS.some((c) => tag.includes(c))
+    );
+    if (!hasCoffeeTag) return false;
+  }
+
+  const allText = [...tagsLower, typeLower, titleLower].join(" ");
+  return COFFEE_INDICATORS.some((c) => allText.includes(c));
+}
+
+function extractRoastFromBody(body: string): string | null {
+  const cleaned = stripHtml(body);
+  const explicit = cleaned.match(/roast\s*(?:level|profile)?\s*[:\-–—]\s*(.+?)(?:\n|$)/i);
+  if (explicit?.[1]) {
+    const level = normalizeRoastLevel(explicit[1]);
     if (level) return level;
   }
+  return null;
+}
+
+function extractRoastLevel(product: ShopifyProduct): string | null {
+  const fromTitle = normalizeRoastLevel(product.title ?? "");
+  if (fromTitle) return fromTitle;
+
+  const fromBody = extractRoastFromBody(product.body_html ?? "");
+  if (fromBody) return fromBody;
+
+  const fromType = normalizeRoastLevel(product.product_type ?? "");
+  if (fromType) return fromType;
+
   return null;
 }
 
@@ -98,8 +150,20 @@ function extractTastingNotes(product: ShopifyProduct): string | null {
   if (noteTag) return noteTag;
 
   const body = stripHtml(product.body_html ?? "");
-  const noteMatch = body.match(/(?:tasting\s*notes?|flavou?r\s*(?:notes?|profile)?)\s*[:\-–—]?\s*(.+?)(?:\.|$)/i);
-  if (noteMatch?.[1]) return noteMatch[1].trim();
+
+  const patterns = [
+    /tasting\s*notes?\s*[:\-–—]?\s*(.+?)(?:\.\s|$|\n)/i,
+    /flavou?r\s*(?:notes?|profile)?\s*[:\-–—]?\s*(.+?)(?:\.\s|$|\n)/i,
+    /notes?\s+of\s+(.+?)(?:\.\s|$|\n)/i,
+  ];
+
+  for (const pattern of patterns) {
+    const match = body.match(pattern);
+    if (match?.[1]) {
+      const notes = match[1].trim().replace(/\s+/g, " ");
+      if (notes.length > 3 && notes.length < 200) return notes;
+    }
+  }
 
   return null;
 }
@@ -136,6 +200,8 @@ export async function scrapeShopify(config: RoasterConfig): Promise<ScrapedCoffe
     for (const product of data.products) {
       if (seenHandles.has(product.handle)) continue;
       seenHandles.add(product.handle);
+
+      if (!isCoffeeProduct(product)) continue;
 
       try {
         const variant = pickCheapestVariant(product.variants);

@@ -49,7 +49,8 @@ export async function scrapeHtml(config: RoasterConfig): Promise<ScrapedCoffee[]
 
     await page.waitForTimeout(2000);
 
-    const productLinks = await page.evaluate((baseUrl: string) => {
+    const linkPattern = config.productLinkPattern;
+    const rawLinks = await page.evaluate((baseUrl: string) => {
       const anchors = Array.from(document.querySelectorAll("a[href]"));
       const links = new Set<string>();
 
@@ -64,7 +65,11 @@ export async function scrapeHtml(config: RoasterConfig): Promise<ScrapedCoffee[]
       return Array.from(links);
     }, config.url);
 
-    console.log(`[html] ${config.name}: found ${productLinks.length} product links`);
+    const productLinks = linkPattern
+      ? rawLinks.filter((l) => l.includes(linkPattern))
+      : rawLinks;
+
+    console.log(`[html] ${config.name}: found ${productLinks.length} product links (filtered from ${rawLinks.length})`);
 
     for (const link of productLinks) {
       try {
@@ -73,59 +78,62 @@ export async function scrapeHtml(config: RoasterConfig): Promise<ScrapedCoffee[]
         await page.waitForTimeout(1000);
 
         const productData = await page.evaluate(() => {
-          const getText = (selectors: string[]): string | null => {
-            for (const sel of selectors) {
-              const el = document.querySelector(sel);
-              if (el?.textContent?.trim()) return el.textContent.trim();
-            }
-            return null;
-          };
-
-          const getImage = (): string | null => {
-            const selectors = [
-              'meta[property="og:image"]',
-              ".product-image img",
-              ".product__image img",
-              ".product-single__photo img",
-              ".product-featured-media img",
-              "img.product-image",
-            ];
-            for (const sel of selectors) {
-              const el = document.querySelector(sel);
-              const src = el?.getAttribute("content") ?? el?.getAttribute("src");
-              if (src) return src.startsWith("//") ? `https:${src}` : src;
-            }
-            return null;
-          };
-
-          const name = getText([
-            "h1.product-title",
-            "h1.product__title",
-            "h1.product-single__title",
-            'meta[property="og:title"]',
-            "h1",
-          ]);
-
-          const priceText = getText([
-            ".product-price",
-            ".product__price",
-            ".price__current",
-            ".price",
-            '[data-product-price]',
-            ".product-single__price",
-          ]);
-
-          const desc = getText([
-            ".product-description",
-            ".product__description",
+          const nameSelectors = [
+            "h1.product-title", "h1.product__title", "h1.product-single__title",
+            "h1.product_title", "h1.entry-title",
+            'meta[property="og:title"]', "h1",
+          ];
+          const priceSelectors = [
+            ".summary .price .woocommerce-Price-amount",
+            ".summary .price ins .woocommerce-Price-amount",
+            ".summary .price",
+            ".product-price", ".product__price", ".price__current",
+            "[data-product-price]", ".product-single__price",
+          ];
+          const descSelectors = [
+            ".product-description", ".product__description",
             ".product-single__description",
-            '[data-product-description]',
+            ".woocommerce-product-details__short-description",
+            "[data-product-description]",
             'meta[property="og:description"]',
-          ]);
+          ];
+          const imgSelectors = [
+            'meta[property="og:image"]', ".product-image img",
+            ".product__image img", ".product-single__photo img",
+            ".product-featured-media img", "img.product-image",
+            ".woocommerce-product-gallery img",
+          ];
+
+          let name: string | null = null;
+          for (let i = 0; i < nameSelectors.length; i++) {
+            const el = document.querySelector(nameSelectors[i]);
+            const t = el?.textContent?.trim();
+            if (t) { name = t; break; }
+          }
+
+          let priceText: string | null = null;
+          for (let i = 0; i < priceSelectors.length; i++) {
+            const el = document.querySelector(priceSelectors[i]);
+            const t = el?.textContent?.trim();
+            if (t) { priceText = t; break; }
+          }
+
+          let desc: string | null = null;
+          for (let i = 0; i < descSelectors.length; i++) {
+            const el = document.querySelector(descSelectors[i]);
+            const t = el?.textContent?.trim();
+            if (t) { desc = t; break; }
+          }
+
+          let image: string | null = null;
+          for (let i = 0; i < imgSelectors.length; i++) {
+            const el = document.querySelector(imgSelectors[i]);
+            const src = el?.getAttribute("content") ?? el?.getAttribute("src");
+            if (src) { image = src.startsWith("//") ? "https:" + src : src; break; }
+          }
 
           const bodyText = document.body?.innerText ?? "";
-
-          return { name, priceText, desc, image: getImage(), bodyText };
+          return { name, priceText, desc, image, bodyText };
         });
 
         if (!productData.name || !productData.priceText) {
@@ -136,16 +144,29 @@ export async function scrapeHtml(config: RoasterConfig): Promise<ScrapedCoffee[]
         const price = parsePrice(productData.priceText);
         if (price <= 0) continue;
 
-        const bodyText = productData.bodyText ?? "";
-        const roastLevel = normalizeRoastLevel(bodyText);
+        const desc = productData.desc ?? "";
+        const roastLevel = normalizeRoastLevel(productData.name) ??
+          normalizeRoastLevel(link) ??
+          normalizeRoastLevel(desc);
         const weight = extractWeightFromText(productData.name ?? "") ??
-          extractWeightFromText(bodyText);
+          extractWeightFromText(desc);
 
         let tastingNotes: string | null = null;
-        const noteMatch = bodyText.match(
-          /(?:tasting\s*notes?|flavou?r\s*(?:notes?|profile)?)\s*[:\-–—]?\s*(.+?)(?:\n|$)/i
-        );
-        if (noteMatch?.[1]) tastingNotes = noteMatch[1].trim();
+        const notePatterns = [
+          /tasting\s*notes?\s*[:\-–—]?\s*(.+?)(?:\n|$)/i,
+          /flavou?r\s*(?:notes?|profile)?\s*[:\-–—]?\s*(.+?)(?:\n|$)/i,
+          /notes?\s+of\s+(.+?)(?:\.\s|$|\n)/i,
+        ];
+        for (const pat of notePatterns) {
+          const m = desc.match(pat);
+          if (m?.[1]) {
+            const notes = m[1].trim();
+            if (notes.length > 3 && notes.length < 200) {
+              tastingNotes = notes;
+              break;
+            }
+          }
+        }
 
         results.push({
           name: productData.name,

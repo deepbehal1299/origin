@@ -36,6 +36,7 @@ export interface RoasterConfig {
   url: string;
   type: "shopify" | "html";
   collectionPath?: string;
+  productLinkPattern?: string;
 }
 
 /**
