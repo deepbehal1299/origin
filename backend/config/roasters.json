@@ -8,8 +8,8 @@
   {
     "id": "savorworks",
     "name": "Savorworks",
-    "url": "https://savorworksroasters.com",
-    "type": "html"
+    "url": "https://www.savorworksroasters.com",
+    "type": "shopify"
   },
   {
     "id": "bloom-coffee-roasters",
@@ -26,8 +26,10 @@
   {
     "id": "marcs-coffee",
     "name": "Marcs Coffee",
-    "url": "https://marcscoffees.com",
-    "type": "html"
+    "url": "https://coffeeideas.in",
+    "type": "html",
+    "collectionPath": "/product-category/coffee/our-coffees/",
+    "productLinkPattern": "/product/our-coffees/"
   },
   {
     "id": "grey-soul-coffee",
