@@ -1,4 +1,4 @@
-import type { RoasterConfig, ScrapedCoffee } from "../types.js";
+import type { RoasterConfig, RoastLevel, ScrapedCoffee } from "../types.js";
 import { normalizeRoastLevel, stripHtml } from "./normalize.js";
 
 interface ShopifyVariant {
@@ -120,7 +120,7 @@ function isCoffeeProduct(product: ShopifyProduct): boolean {
   return COFFEE_INDICATORS.some((c) => allText.includes(c));
 }
 
-function extractRoastFromBody(body: string): string | null {
+function extractRoastFromBody(body: string): RoastLevel | null {
   const cleaned = stripHtml(body);
   const explicit = cleaned.match(/roast\s*(?:level|profile)?\s*[:\-–—]\s*(.+?)(?:\n|$)/i);
   if (explicit?.[1]) {
@@ -130,7 +130,7 @@ function extractRoastFromBody(body: string): string | null {
   return null;
 }
 
-function extractRoastLevel(product: ShopifyProduct): string | null {
+function extractRoastLevel(product: ShopifyProduct): RoastLevel | null {
   const fromTitle = normalizeRoastLevel(product.title ?? "");
   if (fromTitle) return fromTitle;
 
@@ -214,13 +214,14 @@ export async function scrapeShopify(config: RoasterConfig): Promise<ScrapedCoffe
           name: product.title,
           roaster: config.name,
           roaster_id: config.id,
-          roast_level: extractRoastLevel(product) as ScrapedCoffee["roast_level"],
+          roast_level: extractRoastLevel(product),
           tasting_notes: extractTastingNotes(product),
           description: stripHtml(product.body_html ?? ""),
           price,
           weight: extractWeight(variant),
           image_url: product.images?.[0]?.src ?? null,
           product_url: `${config.url}/products/${product.handle}`,
+          available: true,
         });
       } catch (err) {
         console.error(`[shopify] Error processing product "${product.title}" for ${config.name}:`, err);

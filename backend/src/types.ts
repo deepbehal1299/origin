@@ -53,4 +53,5 @@ export interface ScrapedCoffee {
   weight: string | null;
   image_url: string | null;
   product_url: string;
+  available: boolean;
 }

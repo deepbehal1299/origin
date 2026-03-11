@@ -41,7 +41,7 @@ export async function upsertRoasterCoffees(
           price: coffee.price,
           weight: coffee.weight,
           imageUrl: coffee.image_url,
-          available: true,
+          available: coffee.available,
           updatedAt: now,
         })
         .where(eq(coffees.id, existing.id))
@@ -60,7 +60,7 @@ export async function upsertRoasterCoffees(
           weight: coffee.weight,
           imageUrl: coffee.image_url,
           productUrl: coffee.product_url,
-          available: true,
+          available: coffee.available,
           createdAt: now,
           updatedAt: now,
         })

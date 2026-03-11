@@ -179,6 +179,7 @@ export async function scrapeHtml(config: RoasterConfig): Promise<ScrapedCoffee[]
           weight,
           image_url: productData.image,
           product_url: link,
+          available: true,
         });
       } catch (err) {
         console.error(`[html] Error scraping ${link} for ${config.name}:`, err);

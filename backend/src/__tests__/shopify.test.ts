@@ -58,6 +58,7 @@ describe("scrapeShopify", () => {
     expect(coffee).toHaveProperty("weight");
     expect(coffee).toHaveProperty("image_url");
     expect(coffee).toHaveProperty("product_url");
+    expect(coffee).toHaveProperty("available", true);
     expect(typeof coffee.price).toBe("number");
   });
 
