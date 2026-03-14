@@ -63,6 +63,28 @@ This document defines test scenarios and acceptance criteria for the Origin Coff
 
 ---
 
+### TC-API-06: GET /meta returns default freshness metadata before first successful scrape
+
+| Item | Description |
+|------|-------------|
+| **Precondition** | Backend is running; `app_status` has not been written yet. |
+| **Action** | `GET /meta`. |
+| **Expected** | HTTP 200 with an object containing `lastSuccessfulScrapeAt: null`, `lastRunFinishedAt: null`, `lastRunStatus: "never"`, `roastersProcessed: 0`, and `roastersFailed: 0`. |
+| **Acceptance** | Frontend can safely render “Last updated” as absent instead of crashing on missing metadata. |
+
+---
+
+### TC-API-07: GET /meta returns persisted freshness metadata
+
+| Item | Description |
+|------|-------------|
+| **Precondition** | Backend has persisted the latest scrape-run metadata in `app_status`. |
+| **Action** | `GET /meta`. |
+| **Expected** | HTTP 200 with the latest `lastSuccessfulScrapeAt`, `lastRunFinishedAt`, `lastRunStatus`, `roastersProcessed`, and `roastersFailed`. |
+| **Acceptance** | Frontend can show the global “Last updated” label from `lastSuccessfulScrapeAt`. |
+
+---
+
 ## 2. Backend — Shopify Scraper
 
 ### TC-SHOP-01: Normalized output matches Coffee shape from stub products.json
@@ -209,6 +231,17 @@ This document defines test scenarios and acceptance criteria for the Origin Coff
 | **Action** | Inspect cron configuration. |
 | **Expected** | Cron expression is `0 6 * * *` (or equivalent for 06:00 IST). |
 | **Acceptance** | Documentation and code agree; job runs once per day at 06:00 IST when process is up. |
+
+---
+
+### TC-JOB-05: Scrape metadata only advances the global freshness timestamp on full success
+
+| Item | Description |
+|------|-------------|
+| **Precondition** | `app_status.lastSuccessfulScrapeAt` is already set from an earlier successful run. |
+| **Action** | Run the scrape once with all roasters succeeding, then run again with one or more roasters failing. |
+| **Expected** | On the successful run, `lastSuccessfulScrapeAt` is updated. On the partial/failed run, `lastRunFinishedAt` and `lastRunStatus` update, but `lastSuccessfulScrapeAt` remains unchanged. |
+| **Acceptance** | Frontend “Last updated” reflects the latest fully successful catalog refresh rather than a partially degraded run. |
 
 ---
 
@@ -468,8 +501,30 @@ This document defines test scenarios and acceptance criteria for the Origin Coff
 |------|-------------|
 | **Precondition** | Backend is down or returns a 5xx; frontend is open. |
 | **Action** | Open Feed page (or reload while API is unavailable). |
-| **Expected** | Feed shows an error or empty state instead of crashing or showing a blank white screen; navigation to Compare and Settings still works. |
+| **Expected** | Feed retries the live request up to 2 additional times, then shows a calm fallback state instead of crashing or showing a blank white screen; navigation to Compare and Settings still works. |
 | **Acceptance** | Contract §4: "The UI should tolerate temporary API failure and show an error or retry state without breaking navigation." No unhandled exception thrown; tabs remain usable. |
+
+---
+
+### TC-FEED-11: Feed shows global last-updated metadata in live mode
+
+| Item | Description |
+|------|-------------|
+| **Precondition** | Backend `/meta` returns a non-null `lastSuccessfulScrapeAt`. |
+| **Action** | Open Feed page in live mode. |
+| **Expected** | Feed renders a “Last updated …” label using the global metadata value. |
+| **Acceptance** | Timestamp is visible when metadata exists and omitted cleanly when it does not. |
+
+---
+
+### TC-FEED-12: Feed distinguishes backend-empty and filtered-empty states
+
+| Item | Description |
+|------|-------------|
+| **Precondition** | Scenario A: `/coffees` returns `[]`. Scenario B: `/coffees` returns data but filters or disabled roasters hide all visible items. |
+| **Action** | Open Feed in each scenario. |
+| **Expected** | Scenario A shows a catalog-empty message. Scenario B shows a filter/settings-specific empty message. |
+| **Acceptance** | Users can tell the difference between “no coffees available right now” and “your current settings hide all coffees.” |
 
 ---
 

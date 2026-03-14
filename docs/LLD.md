@@ -8,8 +8,8 @@ This document is the low-level specification for the Origin Coffee Aggregator PW
 
 ### 1.1 Overview
 
-- **ORM:** Drizzle ORM (or Prisma). Schema and migrations are explicit; DB is SQLite for v1, with option to swap to PostgreSQL later.
-- **Tables:** `coffees` (required). `roasters` is optional for v1; if omitted, roaster list comes from config + frontend persistence for "enabled".
+- **ORM:** Drizzle ORM. Schema and migrations are explicit; DB is PostgreSQL for beta/prod readiness.
+- **Tables:** `coffees` and `app_status` (required). `roasters` is optional for v1; if omitted, roaster list comes from config + frontend persistence for "enabled".
 
 ### 1.2 Schema: `coffees`
 
@@ -38,13 +38,25 @@ This document is the low-level specification for the Origin Coffee Aggregator PW
 - `coffees_roaster_id_idx` on `(roaster_id)` for filtering by roaster.
 - Unique index on `(roaster_id, product_url)` to enforce upsert key.
 
-### 1.3 Drizzle-style definition (reference)
+### 1.3 Schema: `app_status`
+
+| Column                     | Type           | Constraints / Notes                                                |
+| -------------------------- | -------------- | ------------------------------------------------------------------ |
+| id                         | TEXT           | PRIMARY KEY; singleton value `global`                              |
+| last_successful_scrape_at  | TEXT (ISO8601) | NULLABLE — latest scrape run with zero roaster failures            |
+| last_run_finished_at       | TEXT (ISO8601) | NULLABLE — latest completed run, even if partial or failed         |
+| last_run_status            | TEXT           | NOT NULL — one of `never`, `success`, `partial`, `failed`          |
+| roasters_processed         | INTEGER        | NOT NULL — count of configured roasters in the latest run          |
+| roasters_failed            | INTEGER        | NOT NULL — count of roasters that failed in the latest run         |
+| updated_at                 | TEXT (ISO8601) | NOT NULL — updated whenever the metadata row is written            |
+
+### 1.4 Drizzle-style definition (reference)
 
 ```ts
 // backend/src/db/schema.ts
-import { sqliteTable, text, real, integer } from "drizzle-orm/sqlite-core";
+import { pgTable, text, real, boolean, integer } from "drizzle-orm/pg-core";
 
-export const coffees = sqliteTable(
+export const coffees = pgTable(
   "coffees",
   {
     id: text("id").primaryKey(),
@@ -58,7 +70,7 @@ export const coffees = sqliteTable(
     weight: text("weight"),
     imageUrl: text("image_url"),
     productUrl: text("product_url").notNull(),
-    available: integer("available", { mode: "boolean" }).notNull().default(true),
+    available: boolean("available").notNull().default(true),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -68,12 +80,25 @@ export const coffees = sqliteTable(
     { name: "coffees_roaster_product_unique", on: [table.roasterId, table.productUrl], unique: true },
   ]
 );
+
+export const appStatus = pgTable("app_status", {
+  id: text("id").primaryKey(),
+  lastSuccessfulScrapeAt: text("last_successful_scrape_at"),
+  lastRunFinishedAt: text("last_run_finished_at"),
+  lastRunStatus: text("last_run_status").notNull(),
+  roastersProcessed: integer("roasters_processed").notNull().default(0),
+  roastersFailed: integer("roasters_failed").notNull().default(0),
+  updatedAt: text("updated_at").notNull(),
+});
 ```
 
-### 1.4 Migrations and scrape behavior
+### 1.5 Migrations and scrape behavior
 
-- **Initial migration:** Create `coffees` table and indexes (and optionally `roasters` if used).
+- **Migration workflow:** Use Drizzle SQL migrations checked into `backend/drizzle/`, generated from schema changes and applied via `npm run -w backend db:migrate`.
+- **Initial migration:** Create `coffees` table and indexes.
+- **Metadata migration:** Create `app_status` singleton table for global freshness and scrape-run summaries.
 - **On each scrape run:** Upsert by `(roaster_id, product_url)`. If row exists, update all mutable fields and `updated_at`; if not, insert with new `id` and `created_at`. For each roaster, products that appear in the current scrape result remain or are inserted/updated; products that were previously present for that roaster but are **missing from the current scrape result** must be marked `available = false` (or otherwise excluded from GET /coffees) so they no longer appear in the API—per TC-JOB-03. Do not truncate the entire table so history can be preserved if desired.
+- **After each scrape run:** Update `app_status`. Only set `last_successful_scrape_at` when all configured roasters succeed; partial or failed runs update `last_run_finished_at`, `last_run_status`, and failure counts without advancing the global freshness timestamp.
 
 ---
 
@@ -160,6 +185,13 @@ export const coffees = sqliteTable(
 - **CORS:** Allow frontend origin. In development: `http://localhost:3000`. In production: the PWA origin (e.g. `https://origin.example.com`). Allow `GET` and appropriate headers (e.g. `Content-Type`).
 - **Auth:** None in v1.
 
+### 3.2 GET /meta
+
+- **Method:** GET
+- **Path:** `/meta`
+- **Behavior:** Return the singleton freshness/status object from `app_status`. Before any successful scrape, return null freshness fields with `lastRunStatus = "never"`.
+- **Response:** JSON object with `lastSuccessfulScrapeAt`, `lastRunFinishedAt`, `lastRunStatus`, `roastersProcessed`, and `roastersFailed`.
+
 ---
 
 ## 4. Jobs
@@ -171,6 +203,7 @@ export const coffees = sqliteTable(
   1. Read `backend/config/roasters.json`.
   2. For each roaster: if `type === "shopify"` run Shopify scraper; if `type === "html"` run HTML scraper.
   3. For each roaster's result set, upsert into `coffees` by `(roaster_id, product_url)`; then mark any existing coffees for that roaster that are not in the result set as `available = false` so GET /coffees does not return them (per test case TC-JOB-03).
+  4. Persist scrape-run metadata into `app_status`.
 - **Process behavior:** The process stays up to serve the API. The cron runs inside this process; no separate worker process in v1.
 
 ---
@@ -207,7 +240,8 @@ export const coffees = sqliteTable(
 
 | Variable       | Required | Description                                  |
 | -------------- | -------- | -------------------------------------------- |
-| DATABASE_URL   | Yes      | SQLite path, e.g. `file:./data/origin.sqlite` |
+| DATABASE_URL   | Yes      | PostgreSQL connection string                 |
+| DATABASE_SSL   | No       | `true` to force SSL when the provider requires it |
 | PORT           | No       | HTTP server port; default e.g. 4000          |
 | NODE_ENV       | No       | `development` \| `production`                |
 
@@ -241,8 +275,8 @@ Keys and value shapes (must match [origin_contract.md](.cursor/plans/origin_cont
 
 ### 6.3 Data flow
 
-- **Feed:** On load, fetch `GET /coffees` (via `NEXT_PUBLIC_API_URL`). Filter client-side by enabled roasters (`origin_roasters`) and by selected roast filter. Default roast filter from `origin_roast_preferences` if set. "Add to Compare" updates `origin_compare` (max 5, ids only). "Save" updates `origin_saved` (bookmark for later). "Buy" opens `product_url` in new tab.
-- **Compare:** Read `origin_compare`; resolve coffees from fetched list or from stored objects; render table; "Remove" updates `origin_compare`. "Buy" opens `product_url` in new tab.
+- **Feed:** On load, fetch `GET /coffees` and `GET /meta` (via `NEXT_PUBLIC_API_URL`). In live mode, retry the combined load up to 2 additional times before showing the fallback state. Filter client-side by enabled roasters (`origin_roasters`) and by selected roast filter. Default roast filter from `origin_roast_preferences` if set. "Add to Compare" updates `origin_compare` (max 5, ids only). "Save" updates `origin_saved` (bookmark for later). "Buy" opens `product_url` in new tab. Show global “Last updated” from `lastSuccessfulScrapeAt` when available.
+- **Compare:** Read `origin_compare`; resolve coffees from fetched list; render table; "Remove" updates `origin_compare`. "Buy" opens `product_url` in new tab. Reuse the same live-mode retry and freshness metadata strategy as Feed.
 - **Settings:** Roaster toggles read/write `origin_roasters`; roast preferences read/write `origin_roast_preferences`. No server round-trip.
 
 ---

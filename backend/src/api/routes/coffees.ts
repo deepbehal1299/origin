@@ -2,17 +2,17 @@ import { Router } from "express";
 import { db } from "../../db/client.js";
 import { coffees } from "../../db/schema.js";
 import { eq } from "drizzle-orm";
-import type { Coffee } from "../../types.js";
+import { getAppStatus } from "../../db/status.js";
+import type { Coffee, GetAppStatusResponse } from "../../types.js";
 
 export const coffeesRouter = Router();
 
-coffeesRouter.get("/coffees", (_req, res) => {
+coffeesRouter.get("/coffees", async (_req, res) => {
   try {
-    const rows = db
+    const rows = await db
       .select()
       .from(coffees)
-      .where(eq(coffees.available, true))
-      .all();
+      .where(eq(coffees.available, true));
 
     const response: Coffee[] = rows.map((row) => ({
       id: row.id,
@@ -32,6 +32,16 @@ coffeesRouter.get("/coffees", (_req, res) => {
     res.json(response);
   } catch (err) {
     console.error("[api] Error fetching coffees:", err);
+    res.status(500).json({ error: "Internal server error" });
+  }
+});
+
+coffeesRouter.get("/meta", async (_req, res) => {
+  try {
+    const status: GetAppStatusResponse = await getAppStatus();
+    res.json(status);
+  } catch (err) {
+    console.error("[api] Error fetching app metadata:", err);
     res.status(500).json({ error: "Internal server error" });
   }
 });

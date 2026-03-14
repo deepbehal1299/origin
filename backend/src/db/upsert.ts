@@ -14,25 +14,30 @@ export async function upsertRoasterCoffees(
   scraped: ScrapedCoffee[]
 ): Promise<void> {
   const now = new Date().toISOString();
-  const scrapedUrls: string[] = [];
+  const scrapedUrls = scraped.map((coffee) => coffee.product_url);
 
   for (const coffee of scraped) {
-    scrapedUrls.push(coffee.product_url);
-
-    const existing = db
-      .select({ id: coffees.id })
-      .from(coffees)
-      .where(
-        and(
-          eq(coffees.roasterId, roasterId),
-          eq(coffees.productUrl, coffee.product_url)
-        )
-      )
-      .get();
-
-    if (existing) {
-      db.update(coffees)
-        .set({
+    await db
+      .insert(coffees)
+      .values({
+        id: crypto.randomUUID(),
+        name: coffee.name,
+        roaster: coffee.roaster,
+        roasterId: coffee.roaster_id,
+        roastLevel: coffee.roast_level,
+        tastingNotes: coffee.tasting_notes,
+        description: coffee.description,
+        price: coffee.price,
+        weight: coffee.weight,
+        imageUrl: coffee.image_url,
+        productUrl: coffee.product_url,
+        available: coffee.available,
+        createdAt: now,
+        updatedAt: now,
+      })
+      .onConflictDoUpdate({
+        target: [coffees.roasterId, coffees.productUrl],
+        set: {
           name: coffee.name,
           roaster: coffee.roaster,
           roastLevel: coffee.roast_level,
@@ -43,45 +48,22 @@ export async function upsertRoasterCoffees(
           imageUrl: coffee.image_url,
           available: coffee.available,
           updatedAt: now,
-        })
-        .where(eq(coffees.id, existing.id))
-        .run();
-    } else {
-      db.insert(coffees)
-        .values({
-          id: crypto.randomUUID(),
-          name: coffee.name,
-          roaster: coffee.roaster,
-          roasterId: coffee.roaster_id,
-          roastLevel: coffee.roast_level,
-          tastingNotes: coffee.tasting_notes,
-          description: coffee.description,
-          price: coffee.price,
-          weight: coffee.weight,
-          imageUrl: coffee.image_url,
-          productUrl: coffee.product_url,
-          available: coffee.available,
-          createdAt: now,
-          updatedAt: now,
-        })
-        .run();
-    }
+        },
+      });
   }
 
   if (scrapedUrls.length > 0) {
-    db.update(coffees)
+    await db.update(coffees)
       .set({ available: false, updatedAt: now })
       .where(
         and(
           eq(coffees.roasterId, roasterId),
           notInArray(coffees.productUrl, scrapedUrls)
         )
-      )
-      .run();
+      );
   } else {
-    db.update(coffees)
+    await db.update(coffees)
       .set({ available: false, updatedAt: now })
-      .where(eq(coffees.roasterId, roasterId))
-      .run();
+      .where(eq(coffees.roasterId, roasterId));
   }
 }

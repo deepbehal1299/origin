@@ -33,3 +33,13 @@ export interface Coffee {
   product_url: string;
   available: boolean;
 }
+
+export type ScrapeRunStatus = "never" | "success" | "partial" | "failed";
+
+export interface AppStatus {
+  lastSuccessfulScrapeAt: string | null;
+  lastRunFinishedAt: string | null;
+  lastRunStatus: ScrapeRunStatus;
+  roastersProcessed: number;
+  roastersFailed: number;
+}

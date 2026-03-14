@@ -1,19 +1,19 @@
-import { drizzle } from "drizzle-orm/better-sqlite3";
-import Database from "better-sqlite3";
+import { drizzle } from "drizzle-orm/node-postgres";
+import { Pool } from "pg";
 import * as schema from "./schema.js";
-import path from "node:path";
-import fs from "node:fs";
 
-const DB_PATH = process.env.DATABASE_URL?.replace("file:", "") ?? path.resolve("data", "origin.sqlite");
+const DATABASE_URL = process.env.DATABASE_URL;
 
-const dir = path.dirname(DB_PATH);
-if (!fs.existsSync(dir)) {
-  fs.mkdirSync(dir, { recursive: true });
+if (!DATABASE_URL) {
+  throw new Error("DATABASE_URL is required.");
 }
 
-const sqlite = new Database(DB_PATH);
-sqlite.pragma("journal_mode = WAL");
-sqlite.pragma("foreign_keys = ON");
+const useSsl =
+  process.env.DATABASE_SSL === "true" || DATABASE_URL.includes("sslmode=require");
 
-export const db = drizzle(sqlite, { schema });
-export { sqlite };
+export const pool = new Pool({
+  connectionString: DATABASE_URL,
+  ssl: useSsl ? { rejectUnauthorized: false } : undefined,
+});
+
+export const db = drizzle(pool, { schema });

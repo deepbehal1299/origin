@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CoffeeCard } from "@/components/CoffeeCard";
-import { fetchCoffees } from "@/lib/api";
+import { loadCoffeeSnapshot } from "@/lib/coffee-data";
 import {
   addCompareId,
   getCompareIds,
@@ -11,11 +11,23 @@ import {
   getSavedIds,
   toggleSavedId,
 } from "@/lib/storage";
-import { Coffee, ROAST_LEVELS, RoastLevel } from "@/lib/types";
+import { AppStatus, Coffee, ROAST_LEVELS, RoastLevel } from "@/lib/types";
+
+function formatLastUpdated(timestamp: string | null): string | null {
+  if (!timestamp) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(timestamp));
+}
 
 export default function FeedPage() {
   const [mode, setMode] = useState<"live" | "mock" | null>(null);
   const [coffees, setCoffees] = useState<Coffee[]>([]);
+  const [appStatus, setAppStatus] = useState<AppStatus | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [compareIds, setCompareIds] = useState<string[]>([]);
@@ -24,6 +36,7 @@ export default function FeedPage() {
   const [selectedRoasts, setSelectedRoasts] = useState<RoastLevel[]>([]);
   const [enabledRoasters, setEnabledRoasters] = useState<Record<string, boolean>>({});
   const [feedback, setFeedback] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     setCompareIds(getCompareIds());
@@ -46,18 +59,28 @@ export default function FeedPage() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetchCoffees({ signal: controller.signal, mode: resolvedMode });
-        setCoffees(response);
+        const snapshot = await loadCoffeeSnapshot({
+          signal: controller.signal,
+          mode: resolvedMode,
+          maxRetries: 2,
+        });
+        setCoffees(snapshot.coffees);
+        setAppStatus(snapshot.status);
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Failed to fetch coffees.");
+        if (controller.signal.aborted) {
+          return;
+        }
+        setError("Sorry, we couldn't refresh the coffee list right now. Check back in a few hours.");
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+        }
       }
     }
 
     loadCoffees();
     return () => controller.abort();
-  }, [mode]);
+  }, [mode, reloadKey]);
 
   const visibleCoffees = useMemo(() => {
     return coffees
@@ -70,6 +93,11 @@ export default function FeedPage() {
     const names = Array.from(new Set(coffees.map((coffee) => coffee.roaster)));
     return ["All", ...names];
   }, [coffees]);
+
+  const lastUpdatedLabel = useMemo(
+    () => formatLastUpdated(appStatus?.lastSuccessfulScrapeAt ?? null),
+    [appStatus]
+  );
 
   function onToggleRoast(roastLevel: RoastLevel) {
     setSelectedRoasts((previous) =>
@@ -97,11 +125,18 @@ export default function FeedPage() {
     setFeedback("Added to compare.");
   }
 
+  function handleRetry() {
+    setReloadKey((current) => current + 1);
+  }
+
   return (
     <main className="space-y-4">
       <header>
         <h1 className="text-2xl font-semibold text-slate-900">Origin</h1>
         <p className="text-sm text-slate-600">Discover and compare coffees from specialty roasters.</p>
+        {mode === "live" && lastUpdatedLabel ? (
+          <p className="mt-2 text-xs text-slate-500">Last updated {lastUpdatedLabel}</p>
+        ) : null}
         {mode === "mock" ? (
           <p className="mt-2 inline-block rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
             UAT mock mode is active.
@@ -153,10 +188,29 @@ export default function FeedPage() {
       {feedback ? <p className="text-sm text-slate-600">{feedback}</p> : null}
 
       {isLoading ? <p className="text-sm text-slate-600">Loading coffees...</p> : null}
-      {error ? <p className="text-sm text-red-600">Unable to load coffees right now. {error}</p> : null}
+      {!isLoading && error ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-sm text-slate-700">{error}</p>
+          <button
+            type="button"
+            onClick={handleRetry}
+            className="mt-3 rounded-md bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800"
+          >
+            Try again
+          </button>
+        </div>
+      ) : null}
 
-      {!isLoading && !error && visibleCoffees.length === 0 ? (
-        <p className="text-sm text-slate-600">No coffees found for the current filters.</p>
+      {!isLoading && !error && coffees.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-sm text-slate-700">No coffees are available right now. Check back in a few hours.</p>
+        </div>
+      ) : null}
+
+      {!isLoading && !error && coffees.length > 0 && visibleCoffees.length === 0 ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-sm text-slate-700">No coffees match your current filters or enabled roasters.</p>
+        </div>
       ) : null}
 
       <section className="grid grid-cols-1 gap-4 pb-4">

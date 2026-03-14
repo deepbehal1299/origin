@@ -3,18 +3,29 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import FeedPage from "@/app/page";
-import { fetchCoffees } from "@/lib/api";
+import { fetchAppStatus, fetchCoffees } from "@/lib/api";
 import { getCompareIds, setRoastPreferences, setRoasterEnabled } from "@/lib/storage";
+import { AppStatus } from "@/lib/types";
 import { TEST_COFFEES } from "@/tests/fixtures/coffees";
 
 vi.mock("@/lib/api", () => ({
   fetchCoffees: vi.fn(),
+  fetchAppStatus: vi.fn(),
 }));
+
+const DEFAULT_STATUS: AppStatus = {
+  lastSuccessfulScrapeAt: "2026-03-12T06:00:00.000Z",
+  lastRunFinishedAt: "2026-03-12T06:00:00.000Z",
+  lastRunStatus: "success",
+  roastersProcessed: 6,
+  roastersFailed: 0,
+};
 
 describe("Feed page integration", () => {
   beforeEach(() => {
     window.history.replaceState({}, "", "/?mock=1");
     vi.mocked(fetchCoffees).mockResolvedValue(TEST_COFFEES);
+    vi.mocked(fetchAppStatus).mockResolvedValue(DEFAULT_STATUS);
   });
 
   it("uses mock mode when mock query param is present", async () => {
@@ -73,11 +84,62 @@ describe("Feed page integration", () => {
   });
 
   it("shows an error state when the API request fails", async () => {
-    vi.mocked(fetchCoffees).mockRejectedValueOnce(new Error("boom"));
+    window.history.replaceState({}, "", "/");
+    vi.mocked(fetchCoffees).mockRejectedValue(new Error("boom"));
 
     render(<FeedPage />);
 
-    expect(await screen.findByText(/Unable to load coffees right now/i)).toBeInTheDocument();
+    expect(
+      await screen.findByText(/Sorry, we couldn't refresh the coffee list right now/i)
+    ).toBeInTheDocument();
+    expect(vi.mocked(fetchCoffees)).toHaveBeenCalledTimes(3);
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
     expect(screen.getByText("Origin")).toBeInTheDocument();
+  });
+
+  it("renders last updated metadata when live mode is active", async () => {
+    window.history.replaceState({}, "", "/");
+
+    render(<FeedPage />);
+
+    expect(await screen.findByText(/Last updated/i)).toBeInTheDocument();
+  });
+
+  it("retries twice before succeeding in live mode", async () => {
+    window.history.replaceState({}, "", "/");
+    vi.mocked(fetchCoffees)
+      .mockRejectedValueOnce(new Error("first"))
+      .mockRejectedValueOnce(new Error("second"))
+      .mockResolvedValueOnce(TEST_COFFEES);
+
+    render(<FeedPage />);
+
+    expect(await screen.findByText("A")).toBeInTheDocument();
+    expect(vi.mocked(fetchCoffees)).toHaveBeenCalledTimes(3);
+  });
+
+  it("shows backend-empty state when no coffees are returned", async () => {
+    vi.mocked(fetchCoffees).mockResolvedValueOnce([]);
+
+    render(<FeedPage />);
+
+    expect(
+      await screen.findByText(/No coffees are available right now\. Check back in a few hours\./i)
+    ).toBeInTheDocument();
+  });
+
+  it("shows filtered-empty state when current filters hide all coffees", async () => {
+    setRoasterEnabled("Subko", false);
+    setRoasterEnabled("Savorworks", false);
+    setRoasterEnabled("Bloom Coffee Roasters", false);
+    setRoasterEnabled("Rossette Coffee Lab", false);
+    setRoasterEnabled("Marcs Coffee", false);
+    setRoasterEnabled("Grey Soul Coffee", false);
+
+    render(<FeedPage />);
+
+    expect(
+      await screen.findByText(/No coffees match your current filters or enabled roasters\./i)
+    ).toBeInTheDocument();
   });
 });

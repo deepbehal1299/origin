@@ -1,35 +1,36 @@
-import { sqlite } from "./client.js";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+import { migrate } from "drizzle-orm/node-postgres/migrator";
+import { db, pool } from "./client.js";
 
-/**
- * Push-based migration: create tables if not exists.
- * For production, use drizzle-kit generate + migrate.
- */
-export function runMigrations() {
-  sqlite.exec(`
-    CREATE TABLE IF NOT EXISTS coffees (
-      id            TEXT PRIMARY KEY,
-      name          TEXT NOT NULL,
-      roaster       TEXT NOT NULL,
-      roaster_id    TEXT NOT NULL,
-      roast_level   TEXT,
-      tasting_notes TEXT,
-      description   TEXT,
-      price         REAL NOT NULL,
-      weight        TEXT,
-      image_url     TEXT,
-      product_url   TEXT NOT NULL,
-      available     INTEGER NOT NULL DEFAULT 1,
-      created_at    TEXT NOT NULL,
-      updated_at    TEXT NOT NULL
-    );
+const migrationsFolder = resolve(
+  dirname(fileURLToPath(import.meta.url)),
+  "../../drizzle"
+);
 
-    CREATE UNIQUE INDEX IF NOT EXISTS coffees_roaster_product_unique
-      ON coffees (roaster_id, product_url);
+let migrationPromise: Promise<void> | null = null;
 
-    CREATE INDEX IF NOT EXISTS coffees_available_idx
-      ON coffees (available);
+export async function runMigrations() {
+  if (!migrationPromise) {
+    migrationPromise = migrate(db, { migrationsFolder });
+  }
 
-    CREATE INDEX IF NOT EXISTS coffees_roaster_id_idx
-      ON coffees (roaster_id);
-  `);
+  await migrationPromise;
+}
+
+const isDirectRun =
+  typeof process.argv[1] === "string" &&
+  fileURLToPath(import.meta.url) === resolve(process.argv[1]);
+
+if (isDirectRun) {
+  runMigrations()
+    .then(async () => {
+      console.log("[db] Migrations complete.");
+      await pool.end();
+    })
+    .catch(async (error) => {
+      console.error("[db] Migration failed:", error);
+      await pool.end();
+      process.exit(1);
+    });
 }

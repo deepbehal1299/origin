@@ -30,6 +30,18 @@ export interface Coffee {
 
 export type GetCoffeesResponse = Coffee[];
 
+export type ScrapeRunStatus = "never" | "success" | "partial" | "failed";
+
+export interface AppStatus {
+  lastSuccessfulScrapeAt: string | null;
+  lastRunFinishedAt: string | null;
+  lastRunStatus: ScrapeRunStatus;
+  roastersProcessed: number;
+  roastersFailed: number;
+}
+
+export type GetAppStatusResponse = AppStatus;
+
 export interface RoasterConfig {
   id: string;
   name: string;

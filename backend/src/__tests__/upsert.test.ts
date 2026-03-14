@@ -1,33 +1,8 @@
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from "vitest";
-import Database from "better-sqlite3";
-import { drizzle } from "drizzle-orm/better-sqlite3";
 import { eq } from "drizzle-orm";
 import * as schema from "../db/schema.js";
 import type { ScrapedCoffee } from "../types.js";
-
-function createTestDb() {
-  const sqlite = new Database(":memory:");
-  sqlite.exec(`
-    CREATE TABLE coffees (
-      id TEXT PRIMARY KEY,
-      name TEXT NOT NULL,
-      roaster TEXT NOT NULL,
-      roaster_id TEXT NOT NULL,
-      roast_level TEXT,
-      tasting_notes TEXT,
-      description TEXT,
-      price REAL NOT NULL,
-      weight TEXT,
-      image_url TEXT,
-      product_url TEXT NOT NULL,
-      available INTEGER NOT NULL DEFAULT 1,
-      created_at TEXT NOT NULL,
-      updated_at TEXT NOT NULL
-    );
-    CREATE UNIQUE INDEX coffees_roaster_product_unique ON coffees(roaster_id, product_url);
-  `);
-  return drizzle(sqlite, { schema });
-}
+import { createMigratedTestDb } from "./helpers/testDb.js";
 
 function makeCoffee(overrides: Partial<ScrapedCoffee> = {}): ScrapedCoffee {
   return {
@@ -47,22 +22,30 @@ function makeCoffee(overrides: Partial<ScrapedCoffee> = {}): ScrapedCoffee {
 }
 
 describe("upsertRoasterCoffees", () => {
-  let db: ReturnType<typeof createTestDb>;
+  let db: Awaited<ReturnType<typeof createMigratedTestDb>>["db"];
+  let client: Awaited<ReturnType<typeof createMigratedTestDb>>["client"];
   let upsertRoasterCoffees: typeof import("../db/upsert.js").upsertRoasterCoffees;
 
   beforeAll(async () => {
-    db = createTestDb();
+    const migrated = await createMigratedTestDb();
+    db = migrated.db;
+    client = migrated.client;
     vi.doMock("../db/client.js", () => ({
       db,
+      pool: {
+        query: async () => ({ rows: [{ ok: 1 }] }),
+        end: async () => undefined,
+      },
     }));
     ({ upsertRoasterCoffees } = await import("../db/upsert.js"));
   });
 
   beforeEach(() => {
-    db.delete(schema.coffees).run();
+    return db.delete(schema.coffees);
   });
 
-  afterAll(() => {
+  afterAll(async () => {
+    await client.close();
     vi.doUnmock("../db/client.js");
   });
 
@@ -70,7 +53,7 @@ describe("upsertRoasterCoffees", () => {
     const coffee = makeCoffee();
     await upsertRoasterCoffees("test-roaster", [coffee]);
 
-    const rows = db.select().from(schema.coffees).all();
+    const rows = await db.select().from(schema.coffees);
     expect(rows.length).toBe(1);
     expect(rows[0].name).toBe("Test Coffee");
     expect(rows[0].price).toBe(500);
@@ -84,7 +67,7 @@ describe("upsertRoasterCoffees", () => {
     const updated = makeCoffee({ name: "Updated Coffee", price: 600 });
     await upsertRoasterCoffees("test-roaster", [updated]);
 
-    const rows = db.select().from(schema.coffees).all();
+    const rows = await db.select().from(schema.coffees);
     expect(rows.length).toBe(1);
     expect(rows[0].name).toBe("Updated Coffee");
     expect(rows[0].price).toBe(600);
@@ -98,7 +81,7 @@ describe("upsertRoasterCoffees", () => {
     const onlyC1 = makeCoffee({ product_url: "https://example.com/products/c1" });
     await upsertRoasterCoffees("test-roaster", [onlyC1]);
 
-    const rows = db.select().from(schema.coffees).all();
+    const rows = await db.select().from(schema.coffees);
     expect(rows.length).toBe(2);
 
     const available = rows.filter((r) => r.available === true);
@@ -126,7 +109,7 @@ describe("upsertRoasterCoffees", () => {
 
     await upsertRoasterCoffees("roaster-a", []);
 
-    const rows = db.select().from(schema.coffees).all();
+    const rows = await db.select().from(schema.coffees);
     const roasterA = rows.filter((r) => r.roasterId === "roaster-a");
     const roasterB = rows.filter((r) => r.roasterId === "roaster-b");
 
@@ -139,11 +122,11 @@ describe("upsertRoasterCoffees", () => {
     await upsertRoasterCoffees("test-roaster", [coffee]);
     await upsertRoasterCoffees("test-roaster", []);
 
-    let rows = db.select().from(schema.coffees).all();
+    let rows = await db.select().from(schema.coffees);
     expect(rows[0].available).toBe(false);
 
     await upsertRoasterCoffees("test-roaster", [coffee]);
-    rows = db.select().from(schema.coffees).all();
+    rows = await db.select().from(schema.coffees);
     expect(rows[0].available).toBe(true);
   });
 });

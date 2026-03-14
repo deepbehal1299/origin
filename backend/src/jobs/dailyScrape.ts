@@ -4,6 +4,7 @@ import type { RoasterConfig } from "../types.js";
 import { scrapeShopify } from "../scrapers/shopify.js";
 import { scrapeHtml } from "../scrapers/html.js";
 import { upsertRoasterCoffees } from "../db/upsert.js";
+import { recordScrapeRun } from "../db/status.js";
 
 function loadRoasters(): RoasterConfig[] {
   const configPath = process.env.ROASTERS_CONFIG ?? resolve("config", "roasters.json");
@@ -15,6 +16,8 @@ export async function runDailyScrape(): Promise<void> {
   const roasters = loadRoasters();
   console.log(`[job] Starting scrape for ${roasters.length} roasters...`);
   const startTime = Date.now();
+  let roastersSucceeded = 0;
+  let roastersFailed = 0;
 
   for (const roaster of roasters) {
     try {
@@ -32,10 +35,27 @@ export async function runDailyScrape(): Promise<void> {
 
       await upsertRoasterCoffees(roaster.id, coffees);
       console.log(`[job] ${roaster.name}: upserted ${coffees.length} coffees`);
+      roastersSucceeded += 1;
     } catch (err) {
+      roastersFailed += 1;
       console.error(`[job] Failed to scrape ${roaster.name}:`, err);
     }
   }
+
+  const completedAt = new Date().toISOString();
+  const status =
+    roastersFailed === 0
+      ? "success"
+      : roastersSucceeded > 0
+        ? "partial"
+        : "failed";
+
+  await recordScrapeRun({
+    completedAt,
+    status,
+    roastersProcessed: roasters.length,
+    roastersFailed,
+  });
 
   const elapsed = ((Date.now() - startTime) / 1000).toFixed(1);
   console.log(`[job] Scrape complete in ${elapsed}s`);

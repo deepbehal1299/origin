@@ -14,10 +14,10 @@ It is the single source of truth for API payloads, shared domain types, frontend
 
 ## 1. Contract Version
 
-- **Version:** 1.0
+- **Version:** 1.1
 - **Scope:** Version 1 only
 - **Authentication:** None
-- **Primary API surface:** `GET /coffees`
+- **Primary API surface:** `GET /coffees`, `GET /meta`
 
 ### v1 constraints
 
@@ -119,6 +119,26 @@ export interface Coffee {
 - `roaster` should use the canonical display names above.
 - Although `roaster` is constrained to the supported v1 list, the interface permits `string` so the app can evolve without forcing a breaking type rewrite immediately.
 
+### 2.6 App status type
+
+```ts
+export type ScrapeRunStatus = "never" | "success" | "partial" | "failed";
+
+export interface AppStatus {
+  lastSuccessfulScrapeAt: string | null;
+  lastRunFinishedAt: string | null;
+  lastRunStatus: ScrapeRunStatus;
+  roastersProcessed: number;
+  roastersFailed: number;
+}
+```
+
+**Rules:**
+
+- `lastSuccessfulScrapeAt` is only advanced when the full scrape run succeeds without roaster-level failures.
+- `lastRunFinishedAt` reflects the latest completed run, even if it was partial or failed.
+- The frontend uses `lastSuccessfulScrapeAt` for the global “Last updated” label in live mode.
+
 ---
 
 ## 3. Endpoint Contract
@@ -179,6 +199,42 @@ export type GetCoffeesResponse = Coffee[];
 - No write operations
 - Requests to other paths or unsupported methods return a backend-default 404 or 405
 
+### 3.2 `GET /meta`
+
+- **Method:** `GET`
+- **Path:** `/meta`
+- **Auth:** None
+- **Query params:** None
+- **Purpose:** Return global freshness metadata for the aggregated catalog
+
+### Success response
+
+- **Status:** `200 OK`
+- **Content-Type:** `application/json`
+- **Body type:**
+
+```ts
+export type GetAppStatusResponse = AppStatus;
+```
+
+### Response example
+
+```json
+{
+  "lastSuccessfulScrapeAt": "2026-03-12T06:00:00.000Z",
+  "lastRunFinishedAt": "2026-03-12T06:00:00.000Z",
+  "lastRunStatus": "success",
+  "roastersProcessed": 6,
+  "roastersFailed": 0
+}
+```
+
+### Behavioral guarantees
+
+- Response body is always an object.
+- Before any successful scrape has completed, `lastSuccessfulScrapeAt` is `null` and `lastRunStatus` is `"never"`.
+- The endpoint is additive and does not change the `GET /coffees` response contract.
+
 ---
 
 ## 4. Error and Empty-State Expectations
@@ -196,6 +252,8 @@ The plans define only a single read endpoint for v1, so error handling should re
 - The UI must handle an empty array gracefully
 - The UI must not assume optional fields are populated
 - The UI should tolerate temporary API failure and show an error or retry state without breaking navigation
+- In live mode, the UI should retry catalog loads up to 2 additional times before settling into the fallback state
+- In live mode, the UI should show the global “Last updated” value when `lastSuccessfulScrapeAt` is available
 
 ---
 
@@ -349,6 +407,7 @@ Suggested location:
 Use this checklist before implementation or review:
 
 - `GET /coffees` returns `200` and a JSON array
+- `GET /meta` returns `200` and freshness metadata
 - Every coffee object matches the documented `Coffee` shape
 - `price` is numeric, not formatted text
 - `roast_level` only uses the exact supported enum strings or `null`

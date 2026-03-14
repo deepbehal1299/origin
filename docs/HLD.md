@@ -15,13 +15,15 @@ flowchart LR
     Cron[Daily 06:00 IST]
     Shopify[Shopify Scraper]
     HTML[HTML Scraper]
-    DB[(SQLite)]
+    DB[(Postgres)]
+    Meta[GET /meta]
     API[GET /coffees]
     Cron --> Shopify
     Cron --> HTML
     Shopify --> DB
     HTML --> DB
     DB --> API
+    DB --> Meta
   end
   subgraph frontend [Frontend PWA]
     Feed[Feed]
@@ -29,6 +31,8 @@ flowchart LR
     Settings[Settings]
     API --> Feed
     API --> Compare
+    Meta --> Feed
+    Meta --> Compare
   end
   Feed --> Compare
   Settings --> Feed
@@ -36,7 +40,7 @@ flowchart LR
 
 
 
-- **Backend**: Standalone Node.js (TypeScript) service: scrapers, SQLite DB, REST API, in-process cron at 06:00 IST.
+- **Backend**: Standalone Node.js (TypeScript) service: scrapers, PostgreSQL DB, REST API, freshness metadata endpoint, in-process cron at 06:00 IST.
 - **Frontend**: Next.js (App Router), React, TailwindCSS, PWA (manifest + service worker).
 - **No auth**: Compare state and settings in `localStorage`; no user accounts.
 
@@ -67,7 +71,7 @@ Origin/
 **Backend stack:**
 
 - **Runtime**: Node.js + TypeScript.
-- **DB**: SQLite with **Drizzle ORM** (or Prisma) so schema and migrations are explicit; easy to swap to PostgreSQL later.
+- **DB**: PostgreSQL with **Drizzle ORM** and checked-in SQL migrations so beta/prod storage is managed and repeatable.
 - **HTTP**: Fastify or Express — `GET /coffees` only for v1.
 - **Scheduler**: **node-cron** inside the process — schedule `0 6 `* * * with TZ=Asia/Kolkata (06:00 IST).
 - **Scraping**: `fetch` for Shopify; **Playwright** (Node) for HTML scrapers.

@@ -2,16 +2,29 @@
 
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
-import { fetchCoffees } from "@/lib/api";
+import { loadCoffeeSnapshot } from "@/lib/coffee-data";
 import { getCompareIds, removeCompareId } from "@/lib/storage";
-import { Coffee } from "@/lib/types";
+import { AppStatus, Coffee } from "@/lib/types";
+
+function formatLastUpdated(timestamp: string | null): string | null {
+  if (!timestamp) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("en-IN", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  }).format(new Date(timestamp));
+}
 
 export default function ComparePage() {
   const [mode, setMode] = useState<"live" | "mock" | null>(null);
   const [coffees, setCoffees] = useState<Coffee[]>([]);
+  const [appStatus, setAppStatus] = useState<AppStatus | null>(null);
   const [compareIds, setCompareIds] = useState<string[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [reloadKey, setReloadKey] = useState(0);
 
   useEffect(() => {
     setCompareIds(getCompareIds());
@@ -31,26 +44,45 @@ export default function ComparePage() {
       setIsLoading(true);
       setError(null);
       try {
-        const response = await fetchCoffees({ signal: controller.signal, mode: resolvedMode });
-        setCoffees(response);
+        const snapshot = await loadCoffeeSnapshot({
+          signal: controller.signal,
+          mode: resolvedMode,
+          maxRetries: 2,
+        });
+        setCoffees(snapshot.coffees);
+        setAppStatus(snapshot.status);
       } catch (loadError) {
-        setError(loadError instanceof Error ? loadError.message : "Failed to fetch coffees.");
+        if (controller.signal.aborted) {
+          return;
+        }
+        setError("Sorry, we couldn't refresh compare right now. Check back in a few hours.");
       } finally {
-        setIsLoading(false);
+        if (!controller.signal.aborted) {
+          setIsLoading(false);
+        }
       }
     }
 
     loadCoffees();
     return () => controller.abort();
-  }, [mode]);
+  }, [mode, reloadKey]);
 
   const comparedCoffees = useMemo(() => {
     const coffeeMap = new Map(coffees.map((coffee) => [coffee.id, coffee]));
     return compareIds.map((id) => coffeeMap.get(id)).filter((coffee): coffee is Coffee => Boolean(coffee));
   }, [coffees, compareIds]);
 
+  const lastUpdatedLabel = useMemo(
+    () => formatLastUpdated(appStatus?.lastSuccessfulScrapeAt ?? null),
+    [appStatus]
+  );
+
   function handleRemove(id: string) {
     setCompareIds(removeCompareId(id));
+  }
+
+  function handleRetry() {
+    setReloadKey((current) => current + 1);
   }
 
   return (
@@ -58,6 +90,9 @@ export default function ComparePage() {
       <header>
         <h1 className="text-2xl font-semibold text-slate-900">Compare</h1>
         <p className="text-sm text-slate-600">Compare up to 5 coffees side-by-side.</p>
+        {mode === "live" && lastUpdatedLabel ? (
+          <p className="mt-2 text-xs text-slate-500">Last updated {lastUpdatedLabel}</p>
+        ) : null}
         {mode === "mock" ? (
           <p className="mt-2 inline-block rounded-md bg-amber-100 px-2 py-1 text-xs font-medium text-amber-800">
             UAT mock mode is active.
@@ -66,7 +101,26 @@ export default function ComparePage() {
       </header>
 
       {isLoading ? <p className="text-sm text-slate-600">Loading compare data...</p> : null}
-      {error ? <p className="text-sm text-red-600">Unable to load compare data. {error}</p> : null}
+      {!isLoading && error ? (
+        <div className="rounded-xl border border-slate-200 bg-white p-4">
+          <p className="text-sm text-slate-700">{error}</p>
+          <div className="mt-3 flex gap-2">
+            <button
+              type="button"
+              onClick={handleRetry}
+              className="rounded-md bg-slate-900 px-3 py-2 text-sm text-white hover:bg-slate-800"
+            >
+              Try again
+            </button>
+            <Link
+              href={mode === "mock" ? "/?mock=1" : "/"}
+              className="rounded-md border border-slate-300 px-3 py-2 text-sm text-slate-700 hover:bg-slate-50"
+            >
+              Go to Feed
+            </Link>
+          </div>
+        </div>
+      ) : null}
 
       {!isLoading && !error && comparedCoffees.length === 0 ? (
         <div className="rounded-xl border border-slate-200 bg-white p-4">

@@ -1,6 +1,6 @@
-import { sqliteTable, text, real, integer, uniqueIndex, index } from "drizzle-orm/sqlite-core";
+import { pgTable, text, real, boolean, integer, uniqueIndex, index } from "drizzle-orm/pg-core";
 
-export const coffees = sqliteTable(
+export const coffees = pgTable(
   "coffees",
   {
     id: text("id").primaryKey(),
@@ -14,7 +14,7 @@ export const coffees = sqliteTable(
     weight: text("weight"),
     imageUrl: text("image_url"),
     productUrl: text("product_url").notNull(),
-    available: integer("available", { mode: "boolean" }).notNull().default(true),
+    available: boolean("available").notNull().default(true),
     createdAt: text("created_at").notNull(),
     updatedAt: text("updated_at").notNull(),
   },
@@ -27,3 +27,13 @@ export const coffees = sqliteTable(
     ),
   })
 );
+
+export const appStatus = pgTable("app_status", {
+  id: text("id").primaryKey(),
+  lastSuccessfulScrapeAt: text("last_successful_scrape_at"),
+  lastRunFinishedAt: text("last_run_finished_at"),
+  lastRunStatus: text("last_run_status").notNull(),
+  roastersProcessed: integer("roasters_processed").notNull().default(0),
+  roastersFailed: integer("roasters_failed").notNull().default(0),
+  updatedAt: text("updated_at").notNull(),
+});
